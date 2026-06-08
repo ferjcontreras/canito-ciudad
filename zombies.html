@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mendoza City</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      overflow: hidden;
+      background: #0d1117;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: white;
+    }
+
+    /* ── Loading overlay ── */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: #0d1117;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.5s ease;
+    }
+
+    .loading-box {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .loading-box h1 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #7eb8f7 0%, #c4b5fd 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
+    }
+
+    .loading-box .subtitle {
+      font-size: 0.9rem;
+      color: #8b949e;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(255, 255, 255, 0.08);
+      border-top-color: #7eb8f7;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading-msg {
+      font-size: 0.85rem;
+      color: #8b949e;
+      min-height: 1.2em;
+    }
+
+    #loading-error {
+      display: none;
+      color: #ff6b6b;
+      font-size: 0.85rem;
+      max-width: 360px;
+      line-height: 1.5;
+    }
+
+    /* ── HUD ── */
+    #hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    #coords-bar {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: rgba(13, 17, 23, 0.82);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 0.72rem;
+      color: #8b949e;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      line-height: 1.6;
+    }
+
+    #coords-bar span { color: #c9d1d9; }
+
+    #controls-bar {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(13, 17, 23, 0.82);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 22px;
+      padding: 9px 22px;
+      font-size: 0.76rem;
+      color: #8b949e;
+      white-space: nowrap;
+    }
+
+    kbd {
+      background: rgba(255, 255, 255, 0.09);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 5px;
+      padding: 2px 7px;
+      font-family: inherit;
+      font-size: 0.76rem;
+      color: #c9d1d9;
+    }
+
+    #pointer-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(13, 17, 23, 0.88);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      padding: 18px 28px;
+      text-align: center;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    #pointer-hint p:first-child { font-weight: 700; margin-bottom: 4px; }
+    #pointer-hint p:last-child { font-size: 0.8rem; color: #8b949e; }
+    #pointer-hint.hidden { opacity: 0; }
+
+    /* ── Stats panel (HP / kills) ── */
+    #stats-bar {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      background: rgba(13, 17, 23, 0.82);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .stat { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+    .hp-stat { gap: 10px; }
+    .stat-label { color: #c9d1d9; }
+
+    .hp-bar {
+      width: 150px;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .hp-fill {
+      height: 100%;
+      width: 100%;
+      background: #5ee08a;
+      transition: width 0.18s ease-out, background 0.18s;
+    }
+    .hp-fill.hp-good { background: #5ee08a; box-shadow: inset 0 0 8px rgba(94,224,138,0.5); }
+    .hp-fill.hp-warn { background: #f0c060; box-shadow: inset 0 0 8px rgba(240,192,96,0.5); }
+    .hp-fill.hp-crit { background: #ff6060; box-shadow: inset 0 0 8px rgba(255,96,96,0.5); }
+
+    /* ── Power (charged AoE) bar ── */
+    .power-bar {
+      width: 150px;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .power-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #4fb0ff, #7e5cff);
+      transition: width 0.05s linear;
+    }
+    .power-fill.ready {
+      background: #6fe0ff;
+      box-shadow: inset 0 0 10px rgba(111, 224, 255, 0.9);
+      animation: pulse-power 0.4s ease-in-out infinite alternate;
+    }
+    @keyframes pulse-power { from { opacity: 0.55; } to { opacity: 1; } }
+
+    /* ── Game over overlay ── */
+    #game-over {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13, 17, 23, 0.78);
+      backdrop-filter: blur(6px);
+      color: #ff8a8a;
+      pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    #game-over.hidden { opacity: 0; pointer-events: none; }
+    #game-over h2 { font-size: 3rem; margin-bottom: 12px; }
+    #game-over p  { color: #c9d1d9; }
+
+    #victory {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: rgba(13, 17, 23, 0.78);
+      backdrop-filter: blur(6px);
+      color: #c9d1d9; pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    #victory.hidden { opacity: 0; pointer-events: none; }
+    #victory h2 { font-size: 3rem; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+  <div id="loading-overlay">
+    <div class="loading-box">
+      <h1>Mendoza City</h1>
+      <p class="subtitle">OpenStreetMap · Three.js</p>
+      <div class="spinner"></div>
+      <p id="loading-msg">Inicializando…</p>
+      <p id="loading-error"></p>
+    </div>
+  </div>
+
+  <div id="hud">
+    <div id="coords-bar">
+      Lat <span id="hud-lat">–</span> &nbsp; Lon <span id="hud-lon">–</span><br>
+      Alt <span id="hud-alt">–</span> m
+    </div>
+
+    <div id="stats-bar">
+      <div class="stat hp-stat">
+        <span class="stat-label">HP</span>
+        <div class="hp-bar"><div id="hud-hp-fill" class="hp-fill hp-good"></div></div>
+      </div>
+      <div class="stat power-stat">
+        <span class="stat-label">Poder</span>
+        <div class="power-bar"><div id="hud-power-fill" class="power-fill"></div></div>
+      </div>
+      <div class="stat">Vidas <span id="hud-lives">🐾🐾🐾</span></div>
+      <div class="stat">Gauchos kabum 🔥 <span id="hud-kills">0</span></div>
+    </div>
+
+    <div id="controls-bar">
+      <kbd>↑↓←→</kbd> o <kbd>WASD</kbd> mover &nbsp;|&nbsp;
+      <kbd>Shift</kbd> correr &nbsp;|&nbsp;
+      <kbd>Espacio</kbd> tap = ladrar 🔥 &nbsp;|&nbsp;
+      <kbd>Mantené</kbd> cargar 💥 Aullido Cósmico (10 m) &nbsp;|&nbsp;
+      Huesitos en plazas curan HP &nbsp;|&nbsp;
+      Meta: derrotar a los <strong style="color:#ff8a40">Caballitos de Marly</strong> en los Portones
+    </div>
+
+    <div id="game-over" class="hidden">
+      <h2>Te comieron los zombies</h2>
+      <p>Presioná <kbd>Espacio</kbd> para comenzar otra vez</p>
+    </div>
+
+    <div id="victory" class="hidden">
+      <h2 style="color:#7eff8a">¡Venciste a los Caballitos de Marly!</h2>
+      <p id="victory-stats">Gauchos kabum: 0</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

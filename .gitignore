@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Tooling / local artifacts
+.playwright-mcp/
+.claude/
+*.zip
+*.log
+
+# OS
+.DS_Store

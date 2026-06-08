@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Mendoza City — mapa de calles</title>
+<style>
+  body { margin:0; background:#0d1117; color:#c9d1d9; font-family:system-ui,sans-serif; }
+  h1 { font-size:1.1rem; padding:12px 16px 0; }
+  p.sub { padding:2px 16px; color:#8b949e; font-size:0.82rem; }
+  #wrap { padding:8px 16px 40px; overflow:auto; }
+  svg { background:#11161d; border:1px solid #222; border-radius:8px; }
+</style>
+</head>
+<body>
+<h1>🗺️ Mendoza City — calles del juego</h1>
+<p class="sub">Norte ↑ · Oeste ← (Portones/Parque) · Este → (Salta). Las calles N-S arriba (rotadas). Las E-O a la izquierda muestran sus 3 tramos:
+<b style="color:#e6c98a">Este (Salta↔San Martín)</b> · <b style="color:#9fd0ff">Medio (San Martín↔Belgrano)</b> · <b style="color:#b0b8c0">Oeste (Belgrano↔Parque)</b>. «…» = pendiente de revisar.</p>
+<div id="wrap"></div>
+
+<script>
+const NS = [ // [x, nombre, tipo]
+  [-900,'Av. Boulogne Sur Mer','portones'],[-800,'Paso de los Andes',''],[-700,'Granaderos',''],
+  [-600,'Olascoaga',''],[-500,'Cnel. Rodríguez',''],[-400,'Belgrano','tranvia'],[-300,'Perú',''],
+  [-200,'25 de Mayo',''],[-100,'Chile',''],[0,'Av. Mitre','avboul'],[100,'Patricias Mendocinas',''],
+  [200,'Av. España','av'],[300,'9 de Julio',''],[400,'Av. San Martín','adoquin'],[500,'San Juan',''],
+  [600,'Rioja',''],[700,'Salta',''],
+];
+const EW = [ // [z, este, medio, oeste, tipo]
+  [-600,'Córdoba','Av. Godoy Cruz','(corta en Perú)','av'],[-500,'San Luis','Gral. Paz','(corta en Perú)',''],
+  [-400,'Entre Ríos','Av. Las Heras','Av. Juan B. Justo','av'],[-300,'Buenos Aires','Necochea','L. Aguirre',''],
+  [-200,'Lavalle','Gutiérrez','N. Avellaneda',''],[-100,'Catamarca','Espejo','Agustín Álvarez',''],
+  [0,'Garibaldi','Sarmiento','Emilio Civit','start'],[100,'Leandro N. Alem','Rivadavia','Julio A. Roca',''],
+  [200,'Don Bosco','San Lorenzo','Rufino Ortega',''],[300,'José V. Zapata','Av. Colón','Arístides Villanueva',''],
+  [400,'Rondeau','Av. Pedro Molina','Av. Pedro Molina','av'],[500,'Morón','Peltier','Pueyrredón','av'],
+];
+const PLAZAS = [
+  [0,0,92,'Independencia'],[250,-250,44,'San Martín'],[-250,-250,44,'Chile'],
+  [-250,250,44,'Italia'],[250,250,44,'España'],
+];
+const PORT=[-900,0], START=[680,0];
+
+const sc=0.55, mL=360, mT=130, mR=24, mB=28;
+const X0=-900, X1=700, Z0=-600, Z1=500;
+const W = mL + (X1-X0)*sc + mR, H = mT + (Z1-Z0)*sc + mB;
+const sx = x => mL + (x-X0)*sc, sy = z => mT + (z-Z0)*sc;
+
+let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+// zonas de los 3 tramos (tintes)
+s+=`<rect x="${sx(-900)}" y="${sy(Z0)}" width="${500*sc}" height="${(Z1-Z0)*sc}" fill="#20242c"/>`;   // oeste
+s+=`<rect x="${sx(-400)}" y="${sy(Z0)}" width="${800*sc}" height="${(Z1-Z0)*sc}" fill="#1a2330"/>`;   // medio
+s+=`<rect x="${sx(400)}"  y="${sy(Z0)}" width="${300*sc}" height="${(Z1-Z0)*sc}" fill="#262019"/>`;   // este
+// calles E-O
+for(const [z,,,,t] of EW){
+  const col = t==='av'?'#e8d860':'#3a4250', w = t==='av'?3:1.4;
+  s+=`<line x1="${sx(X0)}" y1="${sy(z)}" x2="${sx(X1)}" y2="${sy(z)}" stroke="${col}" stroke-width="${w}"/>`;
+}
+// calles N-S
+for(const [x,,t] of NS){
+  let col='#3a4250', w=1.4;
+  if(t==='av'||t==='avboul'){col='#e8d860'; w=3;}
+  if(t==='adoquin'){col='#c9a06a'; w=4;}
+  if(t==='tranvia'){col='#d0473a'; w=4;}
+  if(t==='portones'){col='#8a8f98'; w=3;}
+  s+=`<line x1="${sx(x)}" y1="${sy(Z0)}" x2="${sx(x)}" y2="${sy(Z1)}" stroke="${col}" stroke-width="${w}"/>`;
+}
+// límites de tramo (San Martín y Belgrano)
+for(const bx of [400,-400]){
+  s+=`<line x1="${sx(bx)}" y1="${sy(Z0)-22}" x2="${sx(bx)}" y2="${sy(Z1)}" stroke="#ffffff" stroke-width="1" stroke-dasharray="3 4" opacity="0.5"/>`;
+}
+// plazas
+for(const [x,z,h,nm] of PLAZAS){
+  s+=`<rect x="${sx(x-h)}" y="${sy(z-h)}" width="${2*h*sc}" height="${2*h*sc}" fill="#3e7d2e" opacity="0.5" stroke="#5f9a45"/>`;
+  s+=`<text x="${sx(x)}" y="${sy(z)}" fill="#cfe8c0" font-size="8" text-anchor="middle" dominant-baseline="middle">${nm}</text>`;
+}
+s+=`<text x="${sx(PORT[0])-4}" y="${sy(PORT[1])}" fill="#ff8a40" font-size="18" text-anchor="end" dominant-baseline="middle">★</text>`;
+s+=`<circle cx="${sx(START[0])}" cy="${sy(START[1])}" r="5" fill="#7eb8f7"/>`;
+// labels N-S (arriba, rotados)
+for(const [x,nm] of NS){
+  s+=`<text x="${sx(x)}" y="${mT-26}" fill="#c9d1d9" font-size="11" text-anchor="start" transform="rotate(-55 ${sx(x)} ${mT-26})">${nm}</text>`;
+}
+// labels E-O (izquierda): este · medio · oeste
+for(const [z,e,mid,fw] of EW){
+  s+=`<text x="${mL-10}" y="${sy(z)}" font-size="11" text-anchor="end" dominant-baseline="middle">`+
+     `<tspan fill="#e6c98a">${e}</tspan><tspan fill="#586070"> · </tspan>`+
+     `<tspan fill="#9fd0ff">${mid}</tspan><tspan fill="#586070"> · </tspan>`+
+     `<tspan fill="#b0b8c0">${fw}</tspan></text>`;
+}
+s+=`<text x="${W-26}" y="26" fill="#c9d1d9" font-size="13" text-anchor="middle">N ↑</text>`;
+s+=`</svg>`;
+document.getElementById('wrap').innerHTML = s;
+</script>
+</body>
+</html>

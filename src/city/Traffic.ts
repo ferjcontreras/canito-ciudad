@@ -1,9 +1,16 @@
 import * as THREE from 'three';
 import { CityGraph, PathAgent } from './CityGraph';
+import type { AABB } from '../entities/Canito';
+import type { TrafficLights } from './TrafficLights';
 
-// Autos y motos que circulan por las calles (carril derecho). Sin colisiones
-// entre sí en esta versión: se reparten por la grilla y mantienen su carril.
+// Autos y motos que circulan por las calles (carril derecho). Frenan y tocan
+// bocina ante peatones / Canito / el tranvía, son colliders sólidos (Canito no
+// los atraviesa) y no circulan por las vías del metrotranvía.
 // Geometría: frente hacia +Z (coincide con el heading del PathAgent).
+
+// Obstáculo dinámico ante el que un vehículo frena. `honk` = si amerita bocina
+// (peatones y Canito sí; el tranvía no).
+export interface Obstacle { x: number; z: number; r: number; honk: boolean; }
 
 const _matCache = new Map<number, THREE.MeshLambertMaterial>();
 const mat = (c: number): THREE.MeshLambertMaterial => {
@@ -67,29 +74,134 @@ function buildMoto(): THREE.Group {
   return g;
 }
 
-interface Vehicle { agent: PathAgent; group: THREE.Group; }
+interface Vehicle {
+  agent: PathAgent; group: THREE.Group; moto: boolean;
+  col: AABB; halfBody: number; scale: number; lastHonk: number;
+}
 
 export class TrafficManager {
   private vehicles: Vehicle[] = [];
+  private _colliders: AABB[] = [];
 
-  constructor(scene: THREE.Scene, graph: CityGraph, cars: number, motos: number) {
-    // Carril derecho: centro del semicarril (~halfW/2 del eje).
-    const laneOffset = (halfW: number) => halfW * 0.5;
-    const spawn = (group: THREE.Group, speed: number) => {
-      const agent = new PathAgent(graph, laneOffset, speed);
+  private lights?: TrafficLights;
+
+  constructor(
+    scene: THREE.Scene, graph: CityGraph, cars: number, motos: number,
+    allowEdge?: (i: number) => boolean,
+    lights?: TrafficLights,
+  ) {
+    this.lights = lights;
+    // Carril derecho. En calles angostas (residenciales con autos estacionados
+    // contra el cordón) el auto se arrima al eje para dejar libre el carril de
+    // estacionamiento; en avenidas anchas usa el medio-carril normal.
+    const laneOffset = (halfW: number) => Math.max(0, Math.min(halfW * 0.5, halfW - 2.5));
+    const spawn = (group: THREE.Group, speed: number, moto: boolean) => {
+      const agent = new PathAgent(graph, laneOffset, speed, allowEdge);
       scene.add(group);
-      this.vehicles.push({ agent, group });
+      const half = moto ? 1.2 : 2.3;
+      const col: AABB = { minX: agent.x - half, maxX: agent.x + half, minZ: agent.z - half, maxZ: agent.z + half };
+      this._colliders.push(col);
+      this.vehicles.push({ agent, group, moto, col, halfBody: half, scale: 1, lastHonk: 0 });
     };
-    for (let i = 0; i < cars; i++)  spawn(buildCar(),  7 + Math.random() * 4);   // ~25-40 km/h
-    for (let i = 0; i < motos; i++) spawn(buildMoto(), 9 + Math.random() * 4);
+    for (let i = 0; i < cars; i++)  spawn(buildCar(),  7 + Math.random() * 4, false);   // ~25-40 km/h
+    for (let i = 0; i < motos; i++) spawn(buildMoto(), 9 + Math.random() * 4, true);
   }
 
-  update(dt: number): void {
-    for (const v of this.vehicles) {
+  /** Colliders sólidos de los autos (para que Canito no los atraviese). */
+  colliders(): AABB[] { return this._colliders; }
+
+  // snapshots reusados por frame (posición + frente de cada vehículo, ANTES de
+  // moverlos) para la detección auto-auto.
+  private _sx: number[] = []; private _sz: number[] = [];
+  private _fx: number[] = []; private _fz: number[] = [];
+
+  update(
+    dt: number,
+    obstacles: Obstacle[],
+    onHonk?: (x: number, z: number, moto: boolean) => void,
+  ): void {
+    const now = performance.now() / 1000;
+    const LOOK = 7.5;       // distancia de anticipación (desde el centro)
+    const LANE = 1.7;       // medio ancho del "carril" de detección
+    const LOOK_V = 6.5;     // ídem para autos delante (mismo carril)
+    const LANE_V = 1.7;
+
+    // snapshot al inicio del frame
+    const n = this.vehicles.length;
+    for (let i = 0; i < n; i++) {
+      const a = this.vehicles[i].agent;
+      this._sx[i] = a.x; this._sz[i] = a.z;
+      this._fx[i] = Math.sin(a.heading); this._fz[i] = Math.cos(a.heading);
+    }
+    const sx = this._sx, sz = this._sz, FX = this._fx, FZ = this._fz;
+
+    for (let iv = 0; iv < n; iv++) {
+      const v = this.vehicles[iv];
+      const fx = FX[iv], fz = FZ[iv];
+      const rx = fz, rz = -fx;   // vector "derecha"
+      const vx = sx[iv], vz = sz[iv];
+
+      // ── ¿Hay algo delante? → frenar (y bocina si corresponde) ─────────────
+      let blocked = false, wantHonk = false;
+      for (const o of obstacles) {
+        const dx = o.x - vx, dz = o.z - vz;
+        const fp = dx * fx + dz * fz;                 // proyección hacia adelante
+        if (fp <= 0 || fp > LOOK + o.r) continue;
+        const lat = dx * rx + dz * rz;                // proyección lateral
+        if (Math.abs(lat) > LANE + o.r) continue;
+        blocked = true;
+        if (o.honk) wantHonk = true;
+        if (wantHonk) break;
+      }
+
+      // ── Semáforo: frenar en rojo al acercarse a la intersección ───────────
+      if (!blocked && this.lights && !v.agent.inCross && v.agent.distNode < 8) {
+        const isNS = Math.abs(fz) > Math.abs(fx);
+        if (this.lights.isRed(v.agent.nodeId, isNS)) blocked = true;
+      }
+
+      // ── ¿Hay un vehículo adelante en el mismo carril/sentido? → frenar ─────
+      if (!blocked) {
+        for (let iw = 0; iw < n; iw++) {
+          if (iw === iv) continue;
+          const dx = sx[iw] - vx, dz = sz[iw] - vz;
+          if (dx > LOOK_V || dx < -LOOK_V || dz > LOOK_V || dz < -LOOK_V) continue;
+          // mismo sentido (evita que el tránsito de enfrente se frene mutuamente)
+          if (fx * FX[iw] + fz * FZ[iw] < 0.25) continue;
+          const fp = dx * fx + dz * fz;
+          if (fp <= 0.5 || fp > LOOK_V) continue;
+          const lat = dx * rx + dz * rz;
+          if (Math.abs(lat) > LANE_V) continue;
+          blocked = true;
+          break;
+        }
+      }
+
+      // suavizar arranque/frenado
+      const target = blocked ? 0 : 1;
+      v.scale += (target - v.scale) * Math.min(1, dt * (blocked ? 8 : 2.5));
+      v.agent.speedScale = v.scale < 0.02 ? 0 : v.scale;
+
+      if (wantHonk && now - v.lastHonk > 1.6) {
+        v.lastHonk = now;
+        onHonk?.(v.agent.x, v.agent.z, v.moto);
+      }
+
       v.agent.update(dt);
       v.group.position.x = v.agent.x;
       v.group.position.z = v.agent.z;
       v.group.rotation.y = v.agent.heading;
+
+      // collider sólido sigue al vehículo
+      v.col.minX = v.agent.x - v.halfBody; v.col.maxX = v.agent.x + v.halfBody;
+      v.col.minZ = v.agent.z - v.halfBody; v.col.maxZ = v.agent.z + v.halfBody;
     }
+  }
+
+  /** Estados para el audio posicional (posición, velocidad, tipo). */
+  states(): { x: number; z: number; speed: number; moto: boolean }[] {
+    return this.vehicles.map(v => ({
+      x: v.agent.x, z: v.agent.z, speed: v.agent.speed * v.scale, moto: v.moto,
+    }));
   }
 }

@@ -1,6 +1,8 @@
 import { buildPerson, buildDog, animateWalk, animateDog } from './People';
 export class PlazaLife {
     ws = [];
+    greeted = new Set(); // perritos que llegaron a olfatear a Canito
+    helpedDogs() { return this.greeted.size; }
     constructor(scene, plazas) {
         for (const p of plazas) {
             const area = Math.PI * p.radius * p.radius;
@@ -46,6 +48,29 @@ export class PlazaLife {
             x, z, tx, tz, speed, gait: Math.random() * 6.28,
             pause: kind === 'adult' ? Math.random() * 3 : 0,
         });
+    }
+    /** Los perritos de la plaza que andan cerca se acercan a olfatear a Canito
+     *  y, ya pegados, lo miran moviendo la cola. */
+    sniff(px, pz, radius) {
+        for (const w of this.ws) {
+            if (w.kind !== 'dog')
+                continue;
+            const dx = px - w.x, dz = pz - w.z;
+            const d = Math.hypot(dx, dz);
+            if (d < radius) {
+                if (d > 1.3) {
+                    w.tx = px;
+                    w.tz = pz;
+                    w.pause = 0;
+                } // va hacia él
+                else {
+                    w.tx = w.x;
+                    w.tz = w.z;
+                    w.group.rotation.y = Math.atan2(dx, dz);
+                    this.greeted.add(w);
+                } // lo huele
+            }
+        }
     }
     update(dt) {
         for (const w of this.ws) {

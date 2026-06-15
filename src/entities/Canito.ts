@@ -28,9 +28,14 @@ export class Canito {
   private _knockTimer = 0;
   private static readonly KNOCKBACK_SPEED = 8;
 
-  private readonly SPEED        = 6;
-  private readonly SPRINT_SPEED = 18;
+  private readonly SPEED        = 4.4;
+  private readonly SPRINT_SPEED = 7.5;   // correr (un toque por debajo de los autos)
   private readonly TURN         = 2.6;
+
+  // Salto
+  private _y = 0; private _vy = 0; private _grounded = true; private _prevJump = false;
+  private readonly JUMP_V  = 4.7;
+  private readonly GRAVITY = 15;
 
   constructor(scene: THREE.Scene) {
     this.group = new THREE.Group();
@@ -157,8 +162,16 @@ export class Canito {
     for (const m of this._hurtMats) m.color.setHex(targetHex);
   }
 
+  /** Trucazo para entretener a la gente: un saltito y meneo de cola. */
+  trick(): void {
+    if (this._grounded) { this._vy = this.JUMP_V * 0.85; this._grounded = false; }
+    this._trickT = 0.7;
+  }
+  private _trickT = 0;
+
   update(dt: number, keys: Set<string>, colliders: AABB[]): void {
     this._updateHurtFlash(dt);
+    if (this._trickT > 0) { this._trickT -= dt; this._tail.rotation.z = Math.sin(this._phase * 22) * 0.6; }
 
     // ── Knockback: apply velocity from the last hit, decaying over time ────
     if (this._knockTimer > 0) {
@@ -178,6 +191,16 @@ export class Canito {
     if (keys.has('ArrowRight') || keys.has('KeyD')) this._yRot -= this.TURN * dt;
     this.group.rotation.y = this._yRot;
 
+    // ── Salto (Espacio) ───────────────────────────────────────────────────────
+    const jumpKey = keys.has('Space');
+    if (jumpKey && !this._prevJump && this._grounded) { this._vy = this.JUMP_V; this._grounded = false; }
+    this._prevJump = jumpKey;
+    if (!this._grounded) {
+      this._vy -= this.GRAVITY * dt;
+      this._y  += this._vy * dt;
+      if (this._y <= 0) { this._y = 0; this._vy = 0; this._grounded = true; }
+    }
+
     const fwd    = keys.has('ArrowUp')   || keys.has('KeyW');
     const bwd    = keys.has('ArrowDown') || keys.has('KeyS');
     const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
@@ -192,7 +215,7 @@ export class Canito {
       if (!this._hits(p.x + dx, p.z, colliders)) p.x += dx;
       if (!this._hits(p.x, p.z + dz, colliders)) p.z += dz;
 
-      p.x = Math.max(-950, Math.min(720, p.x));
+      p.x = Math.max(-1200, Math.min(720, p.x));   // hasta adentro del Parque (lago)
       p.z = Math.max(-650, Math.min(550, p.z));
     }
 
@@ -213,6 +236,9 @@ export class Canito {
         leg.rotation.x *= 0.88;
       this._tail.rotation.z = Math.sin(this._phase * 3) * 0.18;
     }
+
+    // El salto manda sobre el bobeo de caminar
+    if (!this._grounded) this.group.position.y = this._y;
   }
 
   private _hits(x: number, z: number, colliders: AABB[]): boolean {

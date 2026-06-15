@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { asphaltMaps, concreteMaps } from './textures';
 // ── Road dimensions and colours ───────────────────────────────────────────
 const HALF_WIDTH = {
     motorway: 9, motorway_link: 5,
@@ -18,7 +19,7 @@ const ASPHALT = {
     default: 0x404045,
 };
 const SIDEWALK_COLOR = 0xc4bdad;
-const CROSSING_COLOR = 0xeeeae0;
+const CROSSING_COLOR = 0xffffff; // blanco de pintura vial (no se confunde con la vereda)
 const CENTERLINE_COLOR = 0xe8d860;
 // Ancho de vereda (m) a cada lado de la calzada. Compartido con los builders de
 // edificios/comercios para que se retiren detrás de la vereda.
@@ -173,7 +174,7 @@ out, idx, yBase) {
     const STRIPE_W = 0.45; // stripe width along road direction
     const STRIPE_GAP = 0.45;
     const STRIPES = 5;
-    const LONG = halfW * 1.7; // stripe length perpendicular
+    const LONG = halfW * 1.02; // media-longitud: la cebra cubre la calzada (no pisa la vereda)
     const totalLen = STRIPES * STRIPE_W + (STRIPES - 1) * STRIPE_GAP;
     // perpendicular = (-uz, ux)
     const px = -uz, pz = ux;
@@ -205,11 +206,16 @@ out, idx, yBase) {
 }
 // ── Main builder ──────────────────────────────────────────────────────────
 export function buildStreets(scene, ways, nodeMap, proj) {
-    // Count node usage to detect intersections
+    // Count node usage to detect intersections, and track the widest road through
+    // each node (so the sidewalk can retreat past the crossing carriageway).
     const usage = new Map();
+    const maxHw = new Map();
     for (const w of ways) {
-        for (const nid of w.nodes)
+        const whw = halfWidthOf(w.tags.highway ?? '');
+        for (const nid of w.nodes) {
             usage.set(nid, (usage.get(nid) ?? 0) + 1);
+            maxHw.set(nid, Math.max(maxHw.get(nid) ?? 0, whw));
+        }
     }
     const asphaltByColor = new Map();
     const sidewalkGeos = [];
@@ -240,7 +246,7 @@ export function buildStreets(scene, ways, nodeMap, proj) {
                 cobbleGeos.push(cob);
         }
         else {
-            const asphaltGeo = buildRibbon(pts, hw, 0, 0.04);
+            const asphaltGeo = buildRibbonUV(pts, hw, 0, 0.04, 6);
             if (!asphaltGeo)
                 continue;
             const color = asphaltColor(type);
@@ -252,20 +258,44 @@ export function buildStreets(scene, ways, nodeMap, proj) {
         // Skip on oneway roads — they're usually one half of a divided carriageway
         // (Mendoza has many), and rendering sidewalks on both sides creates the
         // ugly "sidewalk strip down the middle" of the avenue.
+        //
+        // Construir POR TRAMO y retroceder en cada esquina: la vereda nunca debe
+        // cruzar la calzada perpendicular. En cada nodo-intersección se corta a
+        // (ancho de la calle más ancha del cruce + margen) para dejar el asfalto
+        // libre; el hueco de la esquina lo cubre el parche de bocacalle.
         if (hw >= 2.5 && !isOneway) {
-            const right = buildRibbon(pts, SIDEWALK_W / 2, hw + SIDEWALK_W / 2, 0.12);
-            const left = buildRibbon(pts, SIDEWALK_W / 2, -hw - SIDEWALK_W / 2, 0.12);
-            if (right)
-                sidewalkGeos.push(right);
-            if (left)
-                sidewalkGeos.push(left);
-            // Cordón (curb): franja angosta y un poco más alta en el borde de calzada
-            const cR = buildRibbon(pts, 0.18, hw + 0.18, 0.17);
-            const cL = buildRibbon(pts, 0.18, -hw - 0.18, 0.17);
-            if (cR)
-                curbGeos.push(cR);
-            if (cL)
-                curbGeos.push(cL);
+            for (let i = 0; i < pts.length - 1; i++) {
+                const [ax, az] = pts[i];
+                const [bx, bz] = pts[i + 1];
+                const dx = bx - ax, dz = bz - az;
+                const L = Math.hypot(dx, dz);
+                if (L < 0.5)
+                    continue;
+                const ux = dx / L, uz = dz / L;
+                const aInt = (usage.get(way.nodes[i]) ?? 0) >= 2;
+                const bInt = (usage.get(way.nodes[i + 1]) ?? 0) >= 2;
+                const t0 = aInt ? (maxHw.get(way.nodes[i]) ?? hw) + 1.2 : 0;
+                const t1 = bInt ? L - ((maxHw.get(way.nodes[i + 1]) ?? hw) + 1.2) : L;
+                if (t1 - t0 < 1)
+                    continue;
+                const seg = [
+                    [ax + ux * t0, az + uz * t0],
+                    [ax + ux * t1, az + uz * t1],
+                ];
+                const right = buildRibbonUV(seg, SIDEWALK_W / 2, hw + SIDEWALK_W / 2, 0.12, 2.5);
+                const left = buildRibbonUV(seg, SIDEWALK_W / 2, -hw - SIDEWALK_W / 2, 0.12, 2.5);
+                if (right)
+                    sidewalkGeos.push(right);
+                if (left)
+                    sidewalkGeos.push(left);
+                // Cordón (curb): franja angosta y un poco más alta en el borde de calzada
+                const cR = buildRibbon(seg, 0.18, hw + 0.18, 0.17);
+                const cL = buildRibbon(seg, 0.18, -hw - 0.18, 0.17);
+                if (cR)
+                    curbGeos.push(cR);
+                if (cL)
+                    curbGeos.push(cL);
+            }
         }
         // ── Yellow centre line on avenues (no en la calzada de adoquín) ────────
         if (hasCenterline(type) && !isCobble) {
@@ -273,26 +303,27 @@ export function buildStreets(scene, ways, nodeMap, proj) {
             if (centre)
                 centerlineGeos.push(centre);
         }
-        // ── Zebra crossings at intersection endpoints ─────────────────────────
-        if (hw >= 3 && pts.length >= 2) {
-            const n = pts.length;
-            // First node
-            if ((usage.get(way.nodes[0]) ?? 0) >= 2) {
-                const [x0, z0] = pts[0];
-                const [x1, z1] = pts[1];
-                const dx = x1 - x0, dz = z1 - z0;
-                const L = Math.hypot(dx, dz);
-                if (L > 4)
-                    buildZebra(x0, z0, dx / L, dz / L, hw, zebraPos, zebraIdx, 0.07);
-            }
-            // Last node
-            if ((usage.get(way.nodes[n - 1]) ?? 0) >= 2) {
-                const [x1, z1] = pts[n - 1];
-                const [x0, z0] = pts[n - 2];
-                const dx = x0 - x1, dz = z0 - z1;
-                const L = Math.hypot(dx, dz);
-                if (L > 4)
-                    buildZebra(x1, z1, dx / L, dz / L, hw, zebraPos, zebraIdx, 0.07);
+        // ── Zebra crossings en CADA intersección que la calle atraviesa ────────
+        // En la grilla, los cruces son nodos INTERIORES del camino (la calle pasa a
+        // través de la esquina), no sus extremos. Hay que recorrer todos los nodos y
+        // poner una senda en cada brazo que sale del cruce.
+        if (hw >= 3) {
+            for (let i = 0; i < pts.length; i++) {
+                if ((usage.get(way.nodes[i]) ?? 0) < 2)
+                    continue; // sólo cruces reales
+                const [x, z] = pts[i];
+                if (i + 1 < pts.length) {
+                    const dx = pts[i + 1][0] - x, dz = pts[i + 1][1] - z;
+                    const L = Math.hypot(dx, dz);
+                    if (L > 4)
+                        buildZebra(x, z, dx / L, dz / L, hw, zebraPos, zebraIdx, 0.11);
+                }
+                if (i - 1 >= 0) {
+                    const dx = pts[i - 1][0] - x, dz = pts[i - 1][1] - z;
+                    const L = Math.hypot(dx, dz);
+                    if (L > 4)
+                        buildZebra(x, z, dx / L, dz / L, hw, zebraPos, zebraIdx, 0.11);
+                }
             }
         }
     }
@@ -313,9 +344,34 @@ export function buildStreets(scene, ways, nodeMap, proj) {
         mesh.receiveShadow = true;
         scene.add(mesh);
     };
-    for (const [color, geos] of asphaltByColor)
-        commit(geos, color);
-    commit(sidewalkGeos, SIDEWALK_COLOR);
+    // Asfalto con grano (textura + normal map)
+    {
+        const asph = asphaltMaps();
+        for (const [color, geos] of asphaltByColor) {
+            const merged = mergeGeometries(geos, false);
+            if (!merged)
+                continue;
+            const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({
+                color, map: asph.map, normalMap: asph.normalMap,
+                normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.97, metalness: 0,
+            }));
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+        }
+    }
+    // Veredas de baldosa (textura + normal map)
+    if (sidewalkGeos.length) {
+        const conc = concreteMaps();
+        const merged = mergeGeometries(sidewalkGeos, false);
+        if (merged) {
+            const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({
+                color: SIDEWALK_COLOR, map: conc.map, normalMap: conc.normalMap,
+                normalScale: new THREE.Vector2(0.6, 0.6), roughness: 0.95, metalness: 0,
+            }));
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+        }
+    }
     commit(curbGeos, 0x8f8a7e);
     commit(centerlineGeos, CENTERLINE_COLOR, true);
     // Av. San Martín: calzada de adoquín moderno (textura tileada)
@@ -333,7 +389,10 @@ export function buildStreets(scene, ways, nodeMap, proj) {
         geo.setAttribute('position', new THREE.Float32BufferAttribute(zebraPos, 3));
         geo.setIndex(zebraIdx);
         geo.computeVertexNormals();
-        const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: CROSSING_COLOR, side: THREE.FrontSide }));
+        const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+            color: CROSSING_COLOR, side: THREE.DoubleSide,
+            emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.25,
+        }));
         mesh.receiveShadow = true;
         scene.add(mesh);
     }

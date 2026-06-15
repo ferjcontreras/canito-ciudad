@@ -1,7 +1,15 @@
 import * as THREE from 'three';
+import { groundMaps } from './textures';
 export function buildTerrain(scene, size) {
     const groundGeo = new THREE.PlaneGeometry(size, size, 1, 1);
-    const groundMat = new THREE.MeshLambertMaterial({ color: 0xa3a89c });
+    const g = groundMaps();
+    const rep = size / 14; // ~14 m por mosaico
+    g.map.repeat.set(rep, rep);
+    g.normalMap.repeat.set(rep, rep);
+    const groundMat = new THREE.MeshStandardMaterial({
+        color: 0xa3a89c, map: g.map, normalMap: g.normalMap,
+        normalScale: new THREE.Vector2(0.8, 0.8), roughness: 1, metalness: 0,
+    });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.05;

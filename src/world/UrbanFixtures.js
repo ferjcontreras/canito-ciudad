@@ -82,7 +82,7 @@ function signTexture(text) {
     texCache.set(text, tex);
     return tex;
 }
-export function buildUrbanFixtures(scene, ways, nodeMap, proj) {
+export function buildUrbanFixtures(scene, ways, nodeMap, proj, opts) {
     // Uso de nodos + ancho máximo por nodo → intersecciones
     const usage = new Map();
     const maxHw = new Map();
@@ -126,7 +126,8 @@ export function buildUrbanFixtures(scene, ways, nodeMap, proj) {
     // ── Acequias al borde de las veredas ──────────────────────────────────────
     buildAcequias(scene, ways, nodeMap, proj, usage);
     // ── Semáforos en las esquinas ─────────────────────────────────────────────
-    buildTrafficLights(scene, inters);
+    if (opts?.trafficLights !== false)
+        buildTrafficLights(scene, inters);
     // ── Carteles con nombres de calles ────────────────────────────────────────
     buildStreetSigns(scene, inters);
 }

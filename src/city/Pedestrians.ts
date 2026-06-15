@@ -33,4 +33,30 @@ export class PedestrianManager {
       animateWalk(p.rig, p.gait, 1);
     }
   }
+
+  /** Posiciones de los peatones (para que los autos frenen ante ellos). */
+  positions(out: { x: number; z: number }[]): void {
+    for (const p of this.peds) out.push({ x: p.agent.x, z: p.agent.z });
+  }
+
+  /** La gente que ve a Canito se frena y se da vuelta a mirarlo/acariciarlo.
+   *  Devuelve cuántos lo están "saludando" (para subir el ánimo) y la posición
+   *  del más cercano (para el efecto de corazones). */
+  greet(px: number, pz: number, radius: number): { count: number; nx: number; nz: number } {
+    let count = 0, best = Infinity, nx = 0, nz = 0;
+    const r2 = radius * radius;
+    for (const p of this.peds) {
+      const dx = px - p.agent.x, dz = pz - p.agent.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < r2) {
+        count++;
+        p.agent.speedScale = 0;                          // se frena
+        p.rig.group.rotation.y = Math.atan2(dx, dz);     // mira a Canito
+        if (d2 < best) { best = d2; nx = p.agent.x; nz = p.agent.z; }
+      } else if (p.agent.speedScale === 0) {
+        p.agent.speedScale = 1;                          // retoma la marcha
+      }
+    }
+    return { count, nx, nz };
+  }
 }

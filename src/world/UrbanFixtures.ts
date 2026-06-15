@@ -83,6 +83,7 @@ function signTexture(text: string): THREE.Texture {
 
 export function buildUrbanFixtures(
   scene: THREE.Scene, ways: OSMWay[], nodeMap: Map<number, OSMNode>, proj: Projection,
+  opts?: { trafficLights?: boolean },
 ): void {
   // Uso de nodos + ancho máximo por nodo → intersecciones
   const usage = new Map<number, number>();
@@ -127,7 +128,7 @@ export function buildUrbanFixtures(
   buildAcequias(scene, ways, nodeMap, proj, usage);
 
   // ── Semáforos en las esquinas ─────────────────────────────────────────────
-  buildTrafficLights(scene, inters);
+  if (opts?.trafficLights !== false) buildTrafficLights(scene, inters);
 
   // ── Carteles con nombres de calles ────────────────────────────────────────
   buildStreetSigns(scene, inters);

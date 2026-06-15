@@ -66,6 +66,7 @@ export function scatterTreesInPolygon(
   scale = 1,
   jitter = 4,
   avoid: AABB[] = [],
+  blocked?: (x: number, z: number) => boolean,
 ): void {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const [x, z] of poly) {
@@ -85,6 +86,7 @@ export function scatterTreesInPolygon(
       const tz = z + (Math.random() - 0.5) * jitter * 2;
       if (!pointInPoly(tx, tz, poly)) continue;
       if (inAvoid(tx, tz)) continue;        // no árboles sobre fuentes/objetos
+      if (blocked && blocked(tx, tz)) continue;   // ni sobre la calzada
       const s = scale * (0.85 + Math.random() * 0.3);
       pushTree(geos, tx, tz, s);
       const r = 0.5 * s;
@@ -117,6 +119,7 @@ export function scatterStreetTrees(
   ways: import('../geo/types').OSMWay[],
   nodeMap: Map<number, import('../geo/types').OSMNode>,
   proj: import('../geo/Projection').Projection,
+  blocked?: (x: number, z: number) => boolean,
 ): void {
   const SPACING  = 18;  // metres between trees
   const SIDE_OFF = 2.5; // metres past road edge
@@ -165,8 +168,10 @@ export function scatterStreetTrees(
           const tx = x0 + udx * debt;
           const tz = z0 + udz * debt;
           const sc = 0.7 + Math.random() * 0.35;
-          pushTree(geos, tx + nx * hw, tz + nz * hw, sc);
-          pushTree(geos, tx - nx * hw, tz - nz * hw, sc);
+          const rx = tx + nx * hw, rz = tz + nz * hw;   // vereda derecha
+          const lx = tx - nx * hw, lz = tz - nz * hw;   // vereda izquierda
+          if (!blocked || !blocked(rx, rz)) pushTree(geos, rx, rz, sc);
+          if (!blocked || !blocked(lx, lz)) pushTree(geos, lx, lz, sc);
         }
         debt += SPACING;
       }

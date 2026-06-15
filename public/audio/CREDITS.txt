@@ -1,0 +1,32 @@
+Audio diegético de la ciudad: motores y bocinas de los vehículos cercanos y
+pasos de la gente que camina cerca. Todo son samples reales. (No hay cama de
+ambiente / música de fondo.)
+
+── Motores / tranvía (loops reales, recortados ~2.5 s) ──────────────────────
+car-engine.mp3   — archivo propio del usuario (~/Downloads/auto.mp3)
+moto-engine.mp3  — archivo propio del usuario (~/Downloads/moto.mp3)
+tram-engine.mp3  — audio de YouTube (youtube.com/shorts/U0wMKhX6obk)
+Normalizados a ~-15 dB. NOTA: el tranvía es un clip de YouTube (posibles
+derechos); para publicar habría que licenciarlo o reemplazarlo.
+
+── Bocinas (sample real, ~1 s) ──────────────────────────────────────────────
+car-horn-a.mp3   — archivo propio del usuario (~/Downloads/bocina_auto.mp3)
+Las motos usan la misma bocina, reproducida un poco más aguda.
+
+── Pasos de gente (loop real, ~2.6 s) ───────────────────────────────────────
+footsteps.mp3
+- "concrete-footsteps" — SFX libre de regalías (estilo Pixabay).
+- Fuente: archive.org/details/concrete-footsteps-6752
+
+── Música ───────────────────────────────────────────────────────────────────
+La música es un chiptune ORIGINAL generado en vivo con WebAudio (src/city/
+ChipMusic.ts), en vibra electro-pop. No usa ninguna canción real, así que es
+libre de derechos. (Si existe public/audio/music.mp3, se usa esa pista en su
+lugar — pero ojo con los derechos de autor de pistas comerciales.)
+
+── Sin usar ─────────────────────────────────────────────────────────────────
+city-ambience.mp3 — antigua cama de ambiente; ya no se reproduce (se puede
+borrar). Fuente: archive.org/details/city-park-at-night-ambience-loop-free-sfx-no-copyright
+
+Todos recortados con ffmpeg a mono 44.1 kHz. SFX de fuentes de uso libre / sin
+copyright. Reemplazables manteniendo los mismos nombres en public/audio/.

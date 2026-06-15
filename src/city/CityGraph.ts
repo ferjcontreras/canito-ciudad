@@ -59,21 +59,31 @@ export class CityGraph {
     }
   }
 
-  randomEdge(): number { return Math.floor(Math.random() * this.edges.length); }
+  /** A random edge, optionally restricted to those allowed by `allow`. */
+  randomEdge(allow?: (i: number) => boolean): number {
+    if (!allow) return Math.floor(Math.random() * this.edges.length);
+    const ok: number[] = [];
+    for (let i = 0; i < this.edges.length; i++) if (allow(i)) ok.push(i);
+    if (ok.length === 0) return Math.floor(Math.random() * this.edges.length);
+    return ok[(Math.random() * ok.length) | 0];
+  }
 
   /** Choose a continuing edge at `node`, arriving via `viaEdge`. Avoids an
-   *  immediate U-turn unless it's a dead end. */
-  nextEdge(node: number, viaEdge: number): { edge: number; toNode: number } | null {
+   *  immediate U-turn unless it's a dead end. `allow` filters usable edges
+   *  (e.g. vehicles must not turn onto the tram tracks). */
+  nextEdge(node: number, viaEdge: number, allow?: (i: number) => boolean): { edge: number; toNode: number } | null {
     const n = this.nodes.get(node);
     if (!n) return null;
     const opts: { edge: number; toNode: number }[] = [];
     for (const ei of n.edges) {
       if (ei === viaEdge) continue;
+      if (allow && !allow(ei)) continue;
       const e = this.edges[ei];
       const to = e.a === node ? e.b : e.a;
       opts.push({ edge: ei, toNode: to });
     }
     if (opts.length === 0) {
+      // sin salida permitida: volver por donde vino
       const e = this.edges[viaEdge];
       const to = e.a === node ? e.b : e.a;
       return { edge: viaEdge, toNode: to };
@@ -98,13 +108,18 @@ export class PathAgent {
 
   x = 0; z = 0; heading = 0;
   moving = true;
+  speedScale = 1;               // 0 = frenado (lo setea el manager por frame)
+  // Info para los semáforos: nodo (intersección) que tiene adelante, distancia
+  // a él, y si está cruzando una intersección ahora mismo.
+  nodeId = -1; distNode = Infinity; inCross = false;
 
   constructor(
     private graph: CityGraph,
     private offsetFn: (halfW: number) => number,
     public speed: number,
+    private allow?: (i: number) => boolean,
   ) {
-    this.edge = graph.randomEdge();
+    this.edge = graph.randomEdge(allow);
     this.dir = Math.random() < 0.5 ? 1 : -1;
     const e = graph.edges[this.edge];
     this.s = Math.random() * e.len;
@@ -158,8 +173,10 @@ export class PathAgent {
 
   update(dt: number): void {
     if (!this.moving) return;
+    const sdt = dt * this.speedScale;
     if (this.phase === 'cross') {
-      this.cT += dt;
+      this.inCross = true;
+      this.cT += sdt;
       const t = Math.min(1, this.cT / this.cDur);
       this.x = this.cFromX + (this.cToX - this.cFromX) * t;
       this.z = this.cFromZ + (this.cToZ - this.cFromZ) * t;
@@ -173,11 +190,14 @@ export class PathAgent {
       return;
     }
 
-    this.s += this.speed * dt;
+    this.s += this.speed * sdt;
     const e = this.graph.edges[this.edge];
+    this.inCross = false;
+    this.nodeId = this.dir === 1 ? e.b : e.a;
+    this.distNode = e.len - this.s;
     if (this.s >= e.len - 1.5) {
       const node = this.dir === 1 ? e.b : e.a;
-      const nxt = this.graph.nextEdge(node, this.edge);
+      const nxt = this.graph.nextEdge(node, this.edge, this.allow);
       if (nxt) {
         const ne = this.graph.edges[nxt.edge];
         const newDir: 1 | -1 = ne.a === node ? 1 : -1;

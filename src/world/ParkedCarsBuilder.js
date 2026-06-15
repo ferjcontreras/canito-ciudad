@@ -54,16 +54,16 @@ function wheelMatrix(carX, carZ, rotY, localX, localZ) {
 // ── Roads that get parked cars ────────────────────────────────────────────
 const PARKABLE = new Set([
     'residential', 'unclassified', 'living_street',
-    'tertiary', 'tertiary_link', 'secondary_link',
+    'tertiary', 'tertiary_link', 'secondary', 'secondary_link',
 ]);
 const HW_FOR_PARK = {
     residential: 3.5, unclassified: 3.5, living_street: 2.5,
-    tertiary: 4, tertiary_link: 2.5, secondary_link: 3,
+    tertiary: 4, tertiary_link: 2.5, secondary: 5, secondary_link: 3,
 };
 // ── Build parked cars along streets ───────────────────────────────────────
 export function buildParkedCars(scene, ways, nodeMap, proj, colliders, skip) {
-    const SPACING_BASE = 7; // average metres between cars
-    const SKIP_PROB = 0.35; // chance a parking slot is empty
+    const SPACING_BASE = 6; // average metres between cars
+    const SKIP_PROB = 0.18; // chance a parking slot is empty (más lleno = ciudad)
     const carMats = [];
     const carColors = [];
     const wheelMats = [];
@@ -79,7 +79,10 @@ export function buildParkedCars(scene, ways, nodeMap, proj, colliders, skip) {
         if (!type || !PARKABLE.has(type))
             continue;
         const hw = HW_FOR_PARK[type] ?? 3.5;
-        const sideOff = hw + 1.2; // car centre is 1.2m past kerb
+        // Estacionar SOBRE la calzada, pegado al cordón (la vereda es sólo para
+        // peatones). El auto mide 1.6 de ancho (medio 0.8); centro a hw-0.9 deja el
+        // flanco exterior a ~0.1 m del cordón (en hw) y el resto sobre el asfalto.
+        const sideOff = hw - 0.9;
         const pts = [];
         for (const nid of way.nodes) {
             const n = nodeMap.get(nid);

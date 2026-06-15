@@ -43,7 +43,7 @@ function pointInPoly(px, pz, poly) {
 export function createTreeGeos() {
     return { matrices: [] };
 }
-export function scatterTreesInPolygon(geos, colliders, poly, spacing = 14, scale = 1, jitter = 4, avoid = []) {
+export function scatterTreesInPolygon(geos, colliders, poly, spacing = 14, scale = 1, jitter = 4, avoid = [], blocked) {
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const [x, z] of poly) {
         if (x < minX)
@@ -69,6 +69,8 @@ export function scatterTreesInPolygon(geos, colliders, poly, spacing = 14, scale
                 continue;
             if (inAvoid(tx, tz))
                 continue; // no árboles sobre fuentes/objetos
+            if (blocked && blocked(tx, tz))
+                continue; // ni sobre la calzada
             const s = scale * (0.85 + Math.random() * 0.3);
             pushTree(geos, tx, tz, s);
             const r = 0.5 * s;
@@ -92,7 +94,7 @@ const STREET_TREE_HW = {
     tertiary: 4, tertiary_link: 2.5,
     residential: 3.5,
 };
-export function scatterStreetTrees(geos, ways, nodeMap, proj) {
+export function scatterStreetTrees(geos, ways, nodeMap, proj, blocked) {
     const SPACING = 18; // metres between trees
     const SIDE_OFF = 2.5; // metres past road edge
     const CORNER = 9; // no plantar tan cerca de una bocacalle
@@ -139,8 +141,12 @@ export function scatterStreetTrees(geos, ways, nodeMap, proj) {
                     const tx = x0 + udx * debt;
                     const tz = z0 + udz * debt;
                     const sc = 0.7 + Math.random() * 0.35;
-                    pushTree(geos, tx + nx * hw, tz + nz * hw, sc);
-                    pushTree(geos, tx - nx * hw, tz - nz * hw, sc);
+                    const rx = tx + nx * hw, rz = tz + nz * hw; // vereda derecha
+                    const lx = tx - nx * hw, lz = tz - nz * hw; // vereda izquierda
+                    if (!blocked || !blocked(rx, rz))
+                        pushTree(geos, rx, rz, sc);
+                    if (!blocked || !blocked(lx, lz))
+                        pushTree(geos, lx, lz, sc);
                 }
                 debt += SPACING;
             }

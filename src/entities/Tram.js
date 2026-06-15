@@ -21,12 +21,16 @@ export class Tram {
     _s;
     _dir;
     _dwell = 0;
+    _stops;
+    _stoppedAt = null; // s del andén donde está parado
     static SPEED = 23; // más rápido que el sprint de Canito (18)
     static HALF_LEN = 15.5; // half body length (for collision)
     static HALF_WID = 1.45;
+    static STATION_DWELL = 3.2;
     /** Runs along the line through (cx,cz) at `angle`, on the track offset
-     *  `lateral` from the centreline, oscillating ±travelHalf. */
-    constructor(cx, cz, angle, lateral, travelHalf, startS, dir) {
+     *  `lateral` from the centreline, oscillating ±travelHalf. `stops` are
+     *  along-track positions (s) where it dwells to pick up passengers. */
+    constructor(cx, cz, angle, lateral, travelHalf, startS, dir, stops = []) {
         this._cx = cx;
         this._cz = cz;
         this._angle = angle;
@@ -36,6 +40,7 @@ export class Tram {
         this._travelHalf = travelHalf;
         this._s = startS;
         this._dir = dir;
+        this._stops = stops;
         this.group = new THREE.Group();
         this.group.rotation.y = angle;
         this._build();
@@ -109,21 +114,43 @@ export class Tram {
         this.group.position.set(this._cx + this._sinA * this._s + this._cosA * this._lateral, 0, this._cz + this._cosA * this._s - this._sinA * this._lateral);
     }
     get position() { return this.group.position; }
+    /** ¿Detenido en un andén ahora mismo? (no en las puntas del recorrido) */
+    get atStation() { return this._dwell > 0 && this._stoppedAt !== null; }
     update(dt) {
         if (this._dwell > 0) {
             this._dwell -= dt;
             return;
         }
+        const prev = this._s;
         this._s += this._dir * Tram.SPEED * dt;
         if (this._s >= this._travelHalf) {
             this._s = this._travelHalf;
             this._dir = -1;
             this._dwell = 1.5;
+            this._stoppedAt = null;
         }
         else if (this._s <= -this._travelHalf) {
             this._s = -this._travelHalf;
             this._dir = 1;
             this._dwell = 1.5;
+            this._stoppedAt = null;
+        }
+        else {
+            // ¿Cruzó algún andén este frame? → parar a levantar pasajeros. Se saltea
+            // el andén que se acaba de dejar para no quedar atrapado parando ahí.
+            for (const st of this._stops) {
+                if (st === this._stoppedAt)
+                    continue;
+                if ((prev - st) * (this._s - st) <= 0) {
+                    this._s = st;
+                    this._dwell = Tram.STATION_DWELL;
+                    this._stoppedAt = st;
+                    break;
+                }
+            }
+            // ya se alejó lo suficiente del andén anterior → puede volver a parar ahí
+            if (this._stoppedAt !== null && Math.abs(this._s - this._stoppedAt) > 6)
+                this._stoppedAt = null;
         }
         this._place();
     }
